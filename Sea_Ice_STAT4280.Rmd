@@ -1,0 +1,447 @@
+---
+title: "Time Series Analysis of Sea Ice Levels in the Artic Circle"
+author: "Conor Sharpe"
+
+output: html_document
+---
+
+In this project I will be analysing a data set showing the monthly volume of sea ice in the Arctic from January 1990 to March 2011 given in 1000km3. In order to record this data, mass balance measurements are made by buoys in the sea. Sea ice volume is of great interest to scientists because melting sea ice releases CO2 as well as causing sea levels to rise.
+
+The data is available at: https://timeseries.weebly.com/data-sets.html 
+
+```{r, include=FALSE}
+library(astsa)
+library(FitAR)
+library(locfit)
+library(TSA)
+library(tseries)
+library(fpp)
+library(forecast)
+```
+
+## 1. Exploratory Analyses 
+
+First we will import the data and analyse the time series plot, to do this we run the code:
+
+```{r}
+sea_ice = read.csv("sea_ice.csv")
+
+ice = sea_ice$Arctic
+
+par(mfrow=c(1,1), pty="m")
+ts.plot(ice)
+```
+
+Looking at the plot, there seems to be either no trend at all or a slight downward trend. The variance appears roughly constant over time and there seems to be a seasonality with a period of 12.
+
+To investigate whether the data is stationary or not we will conduct an augmented Dickey–Fuller test. This is done using the code:
+
+```{r}
+adf.test(ice)
+adf.test(ice , alternative = 'explosive')
+
+```
+
+The test with the alternative hypothesis of stationary gave a test statistic of -16.421 and corresponding p-value of 0.01. So the evidence suggests that the data is stationary. The test with the alternative hypothesis of explosive gave a test statistic of -16.421 and corresponding p-value of 0.99. So the evidence suggests that the data is not explosive. Therefore, differencing will not be necessary when fitting a model.
+
+Next we will investigate whether or not a variance stabilizing transformation is required. To do this we will run the code:
+
+```{r}
+FitAR::BoxCox(ice)
+
+```
+
+The Box-Cox test recommends a lambda of 1 be used for the time series, this is equivalent to no transformation. This suggests that the data has a constant variance over time and a transformation is not required.
+
+In order to investigate whether the data is seasonal we run the following code:
+
+```{r}
+p=periodogram(ice)
+
+```
+
+We can see a clear spike around 0.8, this tells us that the time series is seasonal. In order to locate the spike we run the code:
+
+```{r}
+p$freq[which.max(p$spec)]
+
+```
+
+And then to see what period this corresponds to, we run the code:
+
+```{r}
+1/p$freq[which.max(p$spec)]
+
+```
+
+This suggests that the period we should use for the model is 12.19, however using contextual knowledge that the data is recorded monthly and there are 12 months in a year we will use a period of 12 for the model.
+
+
+## 2. Sarima Model Fitting
+
+First we will split the time series into training and testing data, the first 245 values will make up the training data and the last 10 values the testing data. To do this we use the code:
+
+```{r}
+ice1 = ts(ice[1:245] , freq=12)
+ice2 = ts(ice[246:255] , freq=12 )
+
+```
+
+We will inspect the ACF and PACF plots in order to fit the SARIMA models, to do this we run the code:
+
+
+```{r}
+par(mfrow=c(1,2),pty='s')
+acf(ice1)
+pacf(ice1)
+
+
+```
+
+## 2.1 Model 1
+
+
+
+Seasonal ACF: Tails off
+Regular ACF: Tails off within period
+Seasonal PACF: Tails off
+Regualr PACF: Cuts off after lag 2 within period
+
+SARIMA (2,0,0)(1,0,1)s=12 
+
+To fit this model we will use the code:
+
+
+```{r}
+m1=arima(ice1,order=c(2,0,0),seasonal=list(order=c(1,0,1),period=12), method="ML")
+m1
+
+```
+
+We will now run diagnostics on the model using the code:
+
+```{r}
+tsdiag(m1)
+par(mfrow=c(1,2) , pty='m')
+pacf(m1$residuals)
+qqnorm(m1$residuals)
+
+
+```
+
+From the standardized residuals plot, we see most residual values lie in between -3 and 3, however there are some values close to -4 that may be considered outliers. Thus, we must continue with caution. There is no pattern and it is centered around 0. In ACF plot there are no significant values of serial correlation. Also, the p-values for Ljung-Box statistics are greater than significance level (=0.05) for all lags. So there is evidence that the SARIMA (2,0,0)(1,0,1)s=12  may be suitable for this time series data. 
+
+The PACF of residuals plot shows a significant value at lag 11, however this is only marginally significant, this suggests the model is a good fit. The Q-Q plot is a straight line, this also suggests the model is a good fit.
+
+Using the model we will predict the next 10 data points, to do this we use the code:
+
+
+```{r}
+m1.fore = predict(m1, n.ahead=10) 
+m1.fore
+
+
+```
+## 2.2 Model 2
+
+Seasonal ACF: Tails off
+Regular ACF: Tails off within period
+Seasonal PACF: Tails off
+Regualr PACF: Tails off within period
+
+SARIMA(1,0,1) (1,0,1)s=12
+
+To fit this model we will use the code:
+
+```{r}
+m2=arima(ice1,order=c(1,0,1),seasonal=list(order=c(1,0,1),period=12), method="ML")
+m2
+
+```
+
+We will now run diagnostics on the model using the code:
+
+```{r}
+tsdiag(m2)
+par(mfrow=c(1,2) , pty='m')
+pacf(m2$residuals)
+qqnorm(m2$residuals)
+
+```
+
+From the standardized residuals plot, most residual values lie in between -3 and 3, however there are some values close to -4 that may be considered outliers. Thus, we must continue with caution. There is no pattern and it is centered around 0. In ACF plot, there are no significant values of serial correlation. Also, the p-values for Ljung-Box statistics are greater than significance level (=0.05) for all lags . So there is evidence that theSARIMA (1,0,1)(1,0,1)s=12 may be suitable for this time series data. 
+
+The PACF of residuals plot shows a significant value at lag 11 however this is only marginally significant, this suggests the model is a good fit. The Q-Q plot is a straight line, this also suggests the model is a good fit.
+
+Using the model we will predict the next 10 data points, to do this we use the code:
+
+
+```{r}
+m2.fore = predict(m1, n.ahead=10) 
+m2.fore
+```
+
+## 2.3 Model 3
+
+For our third model we will use the same model as Model 1 however we will add regular differencing, this will give the model SARIMA (2,1,0)(1,0,1)s=12. Although the ADF test suggested differencing was not necessary, a slight downward trend is visible on the time series plot and therefore it may be worth investigating. To fit the model we used the following code:
+
+```{r}
+m3=arima(ice1,order=c(2,1,0),seasonal=list(order=c(1,0,1), period=12), method="ML")
+m3
+
+```
+
+We will now run diagnostics on the model using the code:
+
+```{r}
+tsdiag(m3)
+par(mfrow=c(1,2) , pty='m')
+pacf(m3$residuals)
+qqnorm(m3$residuals)
+
+```
+
+From the standardized residuals plot, it seems that there is no outlier since all residual values lie in between -4 and 4. However, the residuals are more spread than in other models. Also, there is no pattern and it is centered around 0. In ACF plot there is one significant value of serial correlation at lag 7. Also, the p-values for Ljung-Box statistics are not greater than significance level (=0.05) for lags greater than 7. So there is evidence that the SARIMA(2,1,0) (1,0,1)s=12 may not be suitable for this time series data.
+
+The PACF of residuals plot shows a significant value at lag 5, 7, 9, this suggests the model is not a good fit. The Q-Q plot is not a straight line, this also suggests the model is not a good fit.
+
+Using the model we will predict the next 10 data points, to do this we use the code:
+
+```{r}
+m3.fore = predict(m3, n.ahead=10) 
+m3.fore
+
+```
+
+##2.4 Comparison
+
+We will now compare the three sarima models using the following code:
+
+
+```{r}
+AIC(m1)
+BIC(m1)
+AIC(m2)
+BIC(m2)
+AIC(m3)
+BIC(m3)
+
+(MAPE1=mean(abs((ice2[1:10]-m1.fore$pred)/ice2[1:10])))
+(MAPE2=mean(abs((ice2[1:10]-m2.fore$pred)/ice2[1:10])))
+(MAPE3=mean(abs((ice2[1:10]-m3.fore$pred)/ice2[1:10])))
+
+
+
+```
+
+All of the models have the same number of parameters. Model 3 has the value closest to zero for testing MAPE, however as we saw in the diagnostics above it is not a suitable model so we will not be using it. The next best MAPE is Model 1, this model also has the lowest AIC and BIC so this model should be use
+
+The plot below shows the last 26 time points of the ice times eires plotted alongside the Model 1 forecast, the blue line shows the mean and the red line shows a 95% confidence interval. In order to generate this, the following code was used: 
+
+
+```{r}
+plot(ice[230:255] , type="l")
+lines(17:26, m1.fore$pred , col="blue")
+lines(17:26 , m1.fore$pred-(1.96*m1.fore$se) , col="red")
+lines(17:26 , m1.fore$pred+(1.96*m1.fore$se) , col="red")
+
+
+```
+
+## 3. Decomposition
+
+We will now analyse the LOWESS decomposition plot, to generate this plot we use the code:
+
+
+```{r}
+lowess=stl(ice1,"periodic")
+plot(lowess)
+
+
+```
+
+The LOWESS decomposition plot shows a decreasing trend, however if we look at the scale on the axis we see this is only minor. We see the seasonal effect is large. The remainder has no pattern and is centered around 0, it seems that there are no outliers since all values lie in between -1 and 1.
+
+## 3.1 Model 4
+
+First we will Forecast the next 10 values using the LOWESS arima method, to do this we use the code:
+
+```{r}
+m4=forecast(lowess,method="arima", h=10)
+m4$mean
+
+
+```
+
+## 3.2 Model 5
+
+We will now forecast the next 10 values using the LOWESS ets method, to do this we use the code:
+
+```{r}
+m5=forecast(lowess,method="ets", h=10)
+m5$mean
+
+
+```
+
+## 3.3 Model 6
+
+We will now forecast the next 10 values using the LOWESS naive method, to do this we use the code:
+
+```{r}
+m6=forecast(lowess,method="naive", h=10)
+m6$mean
+
+
+```
+
+## 3.4 Model 7
+
+We will now forecast the next 10 values using the LOWESS rwdrift method, to do this we use the code:
+
+```{r}
+m7=forecast(lowess,method="rwdrift", h=10)
+m7$mean
+
+
+```
+
+## 3.5 Comparison
+In order to compare the four LOWESS models we will find the testing MAPE values, to do this we use the code:
+
+
+```{r}
+(MAPE4=mean(abs((ice2-m4$mean[1:10])/ice2)))
+(MAPE5=mean(abs((ice2-m5$mean[1:10])/ice2)))
+(MAPE6=mean(abs((ice2-m6$mean[1:10])/ice2)))
+(MAPE7=mean(abs((ice2-m7$mean[1:10])/ice2)))
+
+
+```
+
+Of the four LOWESS models, Model 7 (rw drift) has the MAPE closest to zero and therefore should be used.
+
+The plot below shows the last 26 time points of the ice time series plotted alongside the Model 7 forecast, the blue line shows the mean and the red line shows a 95% confidence interval. In order to generate this, the following code was used: 
+
+
+```{r}
+plot(ice[230:255], xaxt = "n" , type="l" , ylim=c(0,16))
+axis(1 , at=1:26, labels=230:255)
+lines(17:26, m7$mean , col="blue")
+lines(17:26 , m7$mean-(m7$lower[11:20]) , col="red")
+lines(17:26 , m7$mean+(m7$lower[11:20]) , col="red")
+
+```
+
+## 4. Smoothing
+
+## 4.1 Model 8
+
+First we will use the simple exponential smoothing method to forecast 10 data points, to do this we use the code:
+
+
+```{r}
+m8=ses(ice1, h=10)
+summary(m8)
+```
+
+The simple exponential smoothing method recommends the smoothing parameter of alpha = 0.9999, this is very close to 1 so only the most recent values influence the forecasts.
+ 
+## 4.2 Model 9
+
+We will use Holt’s method to forecast 10 data points, to do this we use the code:
+
+
+```{r}
+m9=holt(ice1, h=10)
+summary(m9)
+
+```
+
+Holt’s method recommends the smoothing parameter of alpha = 0.9903 and beta = 0.9903. 
+
+## 4.3 Model 10
+
+We will use the Holt-Winters method to forecast 10 data points, to do this we use the code:
+
+```{r}
+m10=hw(ice1,seasonal="additive",h=10)
+summary(m10)
+
+
+```
+
+Holt’s method recommends the smoothing parameter of alpha = 0.8532, beta  = 1e-04 and gamma = 0.1086
+
+## 4.4 Comparison
+
+Before conducting numerical analysis we see that Model 8 predicts the same value for all time points and Model 9 predicts negative values for some time points (which is clearly not possible when the unit is volume of sea ice). This suggests these models may not be a good fit.
+
+In order to compare the three smoothing models we will find the testing MAPE, AIC and BIC to do this we use the code:
+
+
+```{r}
+summary(m8)
+summary(m9)
+summary(m10)
+
+(MAPE8=mean(abs((ice2-m8$mean[1:10])/ice2)))
+(MAPE9=mean(abs((ice2-m9$mean[1:10])/ice2)))
+(MAPE10=mean(abs((ice2-m10$mean[1:10])/ice2)))
+
+```
+
+Model 10 (Holt-Winters) has the MAPE closest to zero as well as the lowest AIC and BIC, therefore this model should be used. This is supported by our original visual inspection of the forecast predictions.
+
+The plot below shows the last 26 time points of the ice time series plotted alongside the Model 10 forecast, the blue line shows the mean and the red line shows a 95% confidence interval. In order to generate this, the following code was used: 
+
+```{r}
+plot(ice[230:255], xaxt = "n" , type="l" , ylim=c(0,16))
+axis(1 , at=1:26, labels=230:255)
+lines(17:26, m10$mean , col="blue")
+lines(17:26 , m10$mean-(m10$lower[11:20]) , col="red")
+lines(17:26 , m10$mean+(m10$lower[11:20]) , col="red")
+
+
+```
+
+## 5. Conclusion
+
+To conclude, by running two augmented Dickey–Fuller tests we saw the time series was not stationary or explosive and therefore differencing was not necessary. Next, we ran a Box-Cox test which showed that a variance stabilizing transformation was also not necessary. Analysing the periodogram showed that the time series has a frequency of 12. 
+
+By analysing the ACF and PACF plots, we then fitted 3 SARIMA models. The best of these was Model 1, SARIMA (2,0,0)(1,0,1)s=12 .
+
+Using LOWESS decomposition we saw the data had a slight decreasing trend as well as a strong seasonal effect with a frequency of 12. Next we fitted 4 models: LOWESS arima, LOWESS ets, LOWESS naive and LOWESS rwdrift. The best of these was Model 7, the LOWESS rwdrift.
+
+Finally we used fit 4 smoothing methods to the data, these were: Simple Exponential Smoothing, Holt’s Method and the Holt-Winters Method. The best of these was Model 10, the Holt-Winters method.
+
+The plot below shows the last 26 time points of the ice time series plotted alongside the best model from each section above. Model 1 forecast (blue), Model 7 forecast (red), Model 10 forecast (green). In order to generate this, the following code was used: 
+
+```{r}
+plot(ice[230:255], xaxt = "n" , type="l")
+axis(1 , at=1:26, labels=230:255)
+lines(17:26 , m1.fore$pred , col="blue")
+lines(17:26 , m7$mean , col="red") 
+lines(17:26 , m10$mean , col="green") 
+
+
+```
+
+Using visual inspection all the models appear to fit very well so we will compare the testing MAPE values (the code for generating these values is shown earlier in the report).
+
+Model 1: 0.04396618
+Model 2: 0.06838158
+Model 3: 0.07616042
+
+Here we see Model 1, SARIMA (2,0,0)(1,0,1)s=12 , has the testing MAPE closest to zero and therefore is the best fit for the data. The final model for the data is given by:
+
+(1-0.7889B+0.0568B2)(1-0.9987B12)XT=(1-0.6993B12)+9.2954
+
+We will now use our final model to predict the volume of sea ice (in 1000km3) in the arctic for the six month period after what is given in the dataset. This is done using the code:
+
+```{r}
+m1.fore = predict(m1, n.ahead=16) 
+m1.fore$pred[11:16]
+
+
+```
